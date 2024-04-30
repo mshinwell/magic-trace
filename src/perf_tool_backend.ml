@@ -248,7 +248,7 @@ module Recording = struct
            "Warning: magic-trace will only be able to snapshot when magic-trace is \
             Ctrl+C'd, not when the application it's running ends. If that application \
             ends before magic-trace can snapshot it, the resulting trace will be empty. \
-            The ability to snapshot when an application teminates was added to perf's \
+            The ability to snapshot when an application terminates was added to perf's \
             userspace tools in version 5.4. For more information, see:\n\
             https://github.com/janestreet/magic-trace/wiki/Supported-platforms,-programming-languages,-and-runtimes#supported-perf-versions\n\
             %!"
@@ -440,10 +440,13 @@ module Recording = struct
 
   let finish_recording t =
     Signal_unix.send_i Signal.term (`Pid t.pid);
-    (* This should usually be a signal exit, but we don't really care, if it didn't produce
-       a good perf.data file the next step will fail. *)
-    let%map (res : Core_unix.Exit_or_signal.t) = Async_unix.Unix.waitpid t.pid in
-    perf_exit_to_or_error res
+    (* This should usually be a signal exit, but we don't really care, if it didn't
+       produce a good perf.data file the next step will fail.
+
+       [Monitor.try_with] because [waitpid] raises if perf exited before we get here. *)
+    match%map.Deferred Monitor.try_with (fun () -> Async_unix.Unix.waitpid t.pid) with
+    | Ok res -> perf_exit_to_or_error res
+    | Error _exn -> Ok ()
   ;;
 end
 
@@ -483,7 +486,7 @@ let decode_events
     >>| List.filter ~f:(String.is_prefix ~prefix:"perf.data")
   in
   let%map result =
-    Deferred.List.map ~how:`Sequential files ~f:(fun perf_data_file ->
+    Deferred.List.map files ~how:`Sequential ~f:(fun perf_data_file ->
       let itrace_opts =
         match collection_mode with
         | Intel_processor_trace _ -> [ "--itrace=bep" ]

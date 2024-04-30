@@ -175,7 +175,7 @@ let write_trace_from_events
     Trace_writer.write_event writer ?events_writer ev
   in
   let%bind () =
-    Deferred.List.iteri events ~f:(fun index events ->
+    Deferred.List.iteri events ~how:`Sequential ~f:(fun index events ->
       Pipe.iter_without_pushback events ~f:(process_event index))
   in
   (match events_writer with
@@ -455,16 +455,14 @@ module Make_commands (Backend : Backend_intf.S) = struct
     Ptrace.resume pid;
     (* Forward ^C to the child, unless it has already exited. *)
     let exited_ivar = Ivar.create () in
-    Async_unix.Signal.handle
-      ~stop:(Ivar.read exited_ivar)
-      Async_unix.Signal.terminating
-      ~f:(fun signal ->
-        try
-          UnixLabels.kill ~pid:(Pid.to_int pid) ~signal:(Signal_unix.to_system_int signal)
-        with
-        | Core_unix.Unix_error (_, (_ : string), (_ : string)) ->
-          (* We raced, but it's OK because the child still exited. *)
-          ());
+    let stop = Ivar.read exited_ivar in
+    Async_unix.Signal.handle ~stop Async_unix.Signal.terminating ~f:(fun signal ->
+      try
+        UnixLabels.kill ~pid:(Pid.to_int pid) ~signal:(Signal_unix.to_system_int signal)
+      with
+      | Core_unix.Unix_error (_, (_ : string), (_ : string)) ->
+        (* We raced, but it's OK because the child still exited. *)
+        ());
     (* [Monitor.try_with] because [waitpid] raises if perf died before we got here. *)
     let%bind.Deferred (waitpid_result : (Core_unix.Exit_or_signal.t, exn) result) =
       Monitor.try_with (fun () -> Async_unix.Unix.waitpid pid)
@@ -479,6 +477,12 @@ module Make_commands (Backend : Backend_intf.S) = struct
          error);
     (* This is still a little racey, but it's the best we can do without pidfds. *)
     Ivar.fill exited_ivar ();
+    (* CR-someday tbrindus: [~stop] doesn't make [Async_unix.Signal.handle] restore signal
+       handlers to their default state, so the decoding step won't be ^C-able. Restore
+       SIGINT's handler here. Ideally we'd restore all [terminating] handlers to their
+       default behavior, but I'm not convinced that doesn't break Async and SIGINT is all
+       we really need. *)
+    Deferred.upon stop (fun () -> Core.Signal.Expert.set Signal.int `Default);
     let%bind () = detach attachment in
     return pid
   ;;
@@ -498,6 +502,7 @@ module Make_commands (Backend : Backend_intf.S) = struct
     Async_unix.Signal.handle ~stop [ Signal.int ] ~f:(fun (_ : Signal.t) ->
       Core.eprintf "[ Got signal, detaching... ]\n%!";
       Ivar.fill_if_empty done_ivar ());
+    Deferred.upon stop (fun () -> Core.Signal.Expert.set Signal.int `Default);
     Core.eprintf "[ Attached. Press Ctrl-C to stop recording. ]\n%!";
     let%bind () = stop in
     detach attachment
@@ -576,7 +581,7 @@ module Make_commands (Backend : Backend_intf.S) = struct
       ~readme:(fun () ->
         "=== examples ===\n\n\
          # Run a process, snapshotting at ^C or exit\n\
-         magic-trace run ./program -- arg1 arg2\n\n\
+         magic-trace run -- ./program arg1 arg2\n\n\
          # Run and trace all threads of a process, not just the main one, snapshotting \
          at ^C or exit\n\
          magic-trace run -multi-thread ./program -- arg1 arg2\n\n\
@@ -586,13 +591,21 @@ module Make_commands (Backend : Backend_intf.S) = struct
       (let%map_open.Command record_opt_fn = record_flags
        and decode_opts = decode_flags
        and debug_print_perf_commands = debug_print_perf_commands
-       and prog = anon ("COMMAND" %: string)
        and argv =
-         flag "--" escape ~doc:"ARGS Arguments for the command. Ignored by magic-trace."
+         let%map_open.Command command = anon (maybe ("COMMAND" %: string))
+         and more_command =
+           flag "--" escape ~doc:"ARGS Arguments for the command. Ignored by magic-trace."
+         in
+         Option.to_list command @ Option.value more_command ~default:[]
        in
        fun () ->
          let open Deferred.Or_error.Let_syntax in
          let%bind () = check_for_perf () in
+         let prog =
+           match List.hd argv with
+           | None -> failwith "no program name provided at the command line"
+           | Some prog -> prog
+         in
          let executable =
            match Shell.which prog with
            | Some path -> path
@@ -604,7 +617,6 @@ module Make_commands (Backend : Backend_intf.S) = struct
              evaluate_trace_filter ~trace_filter:opts.trace_filter ~elf
            in
            let%bind pid =
-             let argv = prog :: List.concat (Option.to_list argv) in
              run_and_record
                opts
                ~elf

@@ -27,7 +27,7 @@ module Header_template = struct
 
   (* Because of the two bitfields for total size and argument count, we can effectively
      treat the full [Header_template] as the sum of integers representing the arguments
-     we've comitted to. We can subtract integers representing those individual arguments
+     we've committed to. We can subtract integers representing those individual arguments
      to remove them from the template, and if we reach zero then we've subtracted
      compatible arguments. Except for issues involving overflow between the two fields,
      which are unlikely to happen accidentally in practice, and this is only used by
@@ -149,10 +149,12 @@ module String_id = struct
   let max_number_of_temp_string_slots = max_value - first_temp + 1
 end
 
+(* maximum string length defined in spec, somewhat less than 2**15 *)
+let max_interned_string_length = 32000 - 1
+
 let set_string_slot t ~string_id s =
   let str_len = String.length s in
-  (* maximum string length defined in spec, somewhat less than 2**15 *)
-  if str_len >= 32000
+  if str_len > max_interned_string_length
   then failwithf "string too long for FTF trace: %i is over the limit of 32kb" str_len ();
   (* String record *)
   let rtype = 2 in

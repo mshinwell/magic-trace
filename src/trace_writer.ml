@@ -561,7 +561,10 @@ let create_thread t event =
        | None -> default_name
        | Some cmdline ->
          let concat_cmdline = String.concat ~sep:" " cmdline in
-         [%string "%{concat_cmdline} %{default_name}"])
+         let name = [%string "%{concat_cmdline} %{default_name}"] in
+         if String.length name > Tracing_zero.Writer.max_interned_string_length
+         then default_name
+         else name)
   in
   let track_group_id = allocate_pid t ~name in
   let thread = allocate_thread t ~pid:track_group_id ~name:"main" in
@@ -893,7 +896,7 @@ end = struct
              | Pushtrap ->
                (* CR-someday tbrindus: maybe we should have [Callstack.t] know about the
                   concept of trap handlers, and have e.g. [Callstack.{pushtrap,poptrap}]
-                  insert markers into an auxilliary data structure.
+                  insert markers into an auxiliary data structure.
 
                   Then we could have operations like "close all frames until the last
                   trap", and enforce invariants like "you can't [ret] past a trap without
@@ -907,18 +910,31 @@ end = struct
                thread_info.callstack <- Callstack.create ~create_time:time;
                Callstack.push thread_info.callstack top
              | Poptrap ->
-               (* We should only have the synthetic frame we created at this point. If we
-                  have more than that, we've gotten confused in our state tracking
-                  somewhere. *)
+               (* Assuming we didn't drop anything, we should only have the synthetic
+                  frame we created at this point. If we have more than that, we either got
+                  confused in our state tracking somewhere, or more likely, IPT dropped
+                  some data. *)
                if Callstack.depth thread_info.callstack <> 1
                then
-                 eprint_s
-                   [%message
-                     "BUG: expected callstack to be depth 1 at the time we encountered a \
-                      poptrap, but it wasn't"
-                       ~callstack:(thread_info.callstack : Callstack.t)];
-               ignore (Callstack.pop thread_info.callstack : _);
-               clear_trap_stack t thread_info ~time));
+                 eprintf
+                   "Warning: expected callstack depth to be the same going into a [try] \
+                    block as when leaving it, but it wasn't (off by %d). Did Intel \
+                    Processor Trace drop some data? Will attempt to recover.\n\
+                    %!"
+                   (Callstack.depth thread_info.callstack - 1)
+               else (
+                 (* Only pop the exception callstack if we're at the same callstack
+                    depth as we were when we saw [Pushtrap]. This should let us recover
+                    from situations like:
+
+                    - Pushtrap 1
+                    - Pushtrap 2
+                    - Poptrap 2
+                    - Poptrap 1
+
+                    where "Pushtrap 2" gets dropped. *)
+                 ignore (Callstack.pop thread_info.callstack : _);
+                 clear_trap_stack t thread_info ~time)));
       last_known_instruction_pointer := Some dst.instruction_pointer
   ;;
 end
@@ -1024,7 +1040,16 @@ let write_event_and_callstack
       event_and_callstack
 ;;
 
-(* Write perf_events into a file as a Fuschia trace (stack events). Events should be
+let warn_decode_error ~instruction_pointer ~message =
+  eprintf
+    "Warning: perf reported an error decoding the trace: %s\n!"
+    (match instruction_pointer with
+     | None -> [%string "'%{message}'"]
+     | Some instruction_pointer ->
+       [%string "'%{message}' @ IP %{instruction_pointer#Int64.Hex}."])
+;;
+
+(* Write perf_events into a file as a Fuchsia trace (stack events). Events should be
    collected with --itrace=be or cre, and -F pid,tid,time,flags,addr,sym,symoff as per
    the constants defined above. *)
 let write_event (T t) ?events_writer event =
@@ -1040,6 +1065,7 @@ let write_event (T t) ?events_writer event =
   maybe_stop_filtered_region t ~should_write;
   match event with
   | Error { thread = _; instruction_pointer; message; time = _ } ->
+    warn_decode_error ~instruction_pointer ~message;
     let name = sprintf !"[decode error: %s]" message in
     write_duration_instant t ~thread ~name ~time ~args:[];
     let is_kernel_address =
@@ -1117,8 +1143,10 @@ let write_event (T t) ?events_writer event =
          ~time;
        (match kind, trace_state_change with
         | Some Call, (None | Some End) -> call t thread_info ~time ~location:dst
-        | ( Some (Call | Syscall | Return | Hardware_interrupt | Iret | Sysret | Jump)
+        | ( Some
+              (Async | Call | Syscall | Return | Hardware_interrupt | Iret | Sysret | Jump)
           , Some Start )
+        | Some Async, None
         | Some (Hardware_interrupt | Jump), Some End ->
           raise_s
             [%message
@@ -1126,7 +1154,8 @@ let write_event (T t) ?events_writer event =
                proved them wrong. Please report this to \
                https://github.com/janestreet/magic-trace/issues/"
                 (event : Event.t)]
-        | None, Some End -> call t thread_info ~time ~location:Event.Location.untraced
+        | (None | Some Async), Some End ->
+          call t thread_info ~time ~location:Event.Location.untraced
         | Some Syscall, Some End ->
           (* We should only be getting these under /u *)
           assert_trace_scope t outer_event [ Userspace ];
