@@ -472,9 +472,11 @@ let write_pending_event
   (ev : Pending_event.t)
   =
   match ev.kind with
-  | Ret_from_untraced _ | Call { from_untraced = true; _ } ->
+  | Ret_from_untraced _
+  | Call { from_untraced = true; _ }
+  | Inlined_call { from_untraced = true; _ } ->
     Deque.enqueue_front thread.start_events (time, ev)
-  | Call _ when Mapped_time.is_base_time time ->
+  | (Call _ | Inlined_call _) when Mapped_time.is_base_time time ->
     Deque.enqueue_back thread.start_events (time, ev)
   | _ -> write_pending_event' t thread time ev
 ;;
