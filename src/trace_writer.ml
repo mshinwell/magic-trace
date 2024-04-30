@@ -995,12 +995,18 @@ end = struct
          first (synthetic) frame missing. A more principled approach would be the one
          outlined in another CR-someday below, where we teach [Callstack] about traps
          directly. *)
+      let top = Callstack.top thread_info.callstack in
       let s = thread_info.callstack.stack |> Stack.to_list in
       let s = List.take s (List.length s - 1) in
       Stack.clear thread_info.callstack.stack;
       List.iter (List.rev s) ~f:(fun x -> Stack.push thread_info.callstack.stack x);
-      clear_trap_stack t thread_info ~time ~inlined_frames_outermost_first:None
-      (* XXX set inlined frames arg *)
+      clear_trap_stack
+        t
+        thread_info
+        ~time
+        ~inlined_frames_outermost_first:
+          (Option.map top ~f:(fun (loc : Event.Location.t) ->
+             loc.inlined_frames_outermost_first))
       (* XXX should this call [check_current_symbol]? *)
     | _ -> check_current_symbol t thread_info ~time dst
   ;;
