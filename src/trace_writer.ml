@@ -884,6 +884,7 @@ end = struct
       Stack.clear thread_info.callstack.stack;
       List.iter (List.rev s) ~f:(fun x -> Stack.push thread_info.callstack.stack x);
       clear_trap_stack t thread_info ~time
+      (* XXX should this call [check_current_symbol]? *)
     | _ -> check_current_symbol t thread_info ~time dst
   ;;
 
