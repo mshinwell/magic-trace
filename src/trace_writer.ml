@@ -2,7 +2,7 @@ open! Core
 open! Import
 
 let debug = ref false
-let debug2 = true
+let debug2 = false
 let is_kernel_address addr = Int64.(addr < 0L)
 
 (* Time spans from perf start whenever the machine booted. Perfetto uses floats to represent time
@@ -875,9 +875,11 @@ let check_current_symbol
         ~time;
       let (_ : Event.Location.t option) = Callstack.pop thread_info.callstack in
       let loc = { loc with inlined_frames_outermost_first = new_inlined_frames } in
-      Stdlib.Printf.printf
-        "new location = %s\n%!"
-        (Sexp.to_string (Event.Location.sexp_of_t loc));
+      if debug2
+      then
+        Stdlib.Printf.printf
+          "new location = %s\n%!"
+          (Sexp.to_string (Event.Location.sexp_of_t loc));
       Callstack.push thread_info.callstack loc)
   | None ->
     (* If we have no callstack left, then we just returned out of something we didn't
@@ -985,11 +987,31 @@ end = struct
          outlined in another CR-someday below, where we teach [Callstack] about traps
          directly. *)
       let s = thread_info.callstack.stack |> Stack.to_list in
-      let s = List.take s (List.length s - 1) in
+      let num_frames = List.length s in
+      let s = List.take s (num_frames - 1) in
+      let synthetic_frame = List.hd s in
       Stack.clear thread_info.callstack.stack;
+      (* This iterates from the oldest to the newest frame. *)
       List.iter (List.rev s) ~f:(fun x -> Stack.push thread_info.callstack.stack x);
-      clear_trap_stack t thread_info ~time
-      (* XXX should this call [check_current_symbol]? *)
+      clear_trap_stack t thread_info ~time;
+      (* If there was in fact only the synthetic frame on the callstack, we also need to
+         manually make any inlined frame adjustments, since [ret] won't have been called
+         by [clear_trap_stack] but [check_current_symbol] might have been previously
+         (and the latter can affect the inlined frame estack). *)
+      (match synthetic_frame with
+       | None -> ()
+       | Some { inlined_frames_outermost_first = previous_inlined_frames; _ } ->
+         let new_inlined_frames =
+           match Callstack.top thread_info.callstack with
+           | None -> []
+           | Some { inlined_frames_outermost_first; _ } -> inlined_frames_outermost_first
+         in
+         emit_inlined_frame_adjustments
+           t
+           thread_info
+           ~previous_inlined_frames
+           ~new_inlined_frames
+           ~time)
     | _ -> check_current_symbol t thread_info ~time dst
   ;;
 
