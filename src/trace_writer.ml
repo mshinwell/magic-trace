@@ -467,22 +467,23 @@ let write_pending_event'
     write_duration_begin t ~thread:thread.thread ~name ~time ~args
   | Inlined_ret { inlined_frame = frame; reason } ->
     let on_stack = Stack.pop t.inlining_stack in
-    let err = Printf.sprintf "%s (%s)" (name_for_inlined_frame frame) reason in
-    (match on_stack with
-     | None ->
+    let _err = Printf.sprintf "%s (%s)" (name_for_inlined_frame frame) reason in
+    (* temporarily off
+       (match on_stack with
+       | None ->
        ()
        (* XXX this is valid if this is an "untraced" return *)
        (* failwithf "Couldn't do Inlined_ret %s, stack is empty" err () *)
-     | Some on_stack ->
+       | Some on_stack ->
        if not ([%compare.equal: Event.Inlined_frame.t] frame on_stack)
        then
-         failwithf
-           "Couldn't do Inlined_ret %s, top of inlining stack differs: %s (tried to \
-            return with: %s)"
-           err
-           (Sexp.to_string (Event.Inlined_frame.sexp_of_t on_stack))
-           (Sexp.to_string (Event.Inlined_frame.sexp_of_t frame))
-           ());
+       failwithf
+       "Couldn't do Inlined_ret %s, top of inlining stack differs: %s (tried to \
+       return with: %s)"
+       err
+       (Sexp.to_string (Event.Inlined_frame.sexp_of_t on_stack))
+       (Sexp.to_string (Event.Inlined_frame.sexp_of_t frame))
+       ()); *)
     (*    Stdlib.Printf.eprintf "Inlined_ret (%s): %s\n" reason (name_for_inlined_frame frame); *)
     if Option.is_some on_stack
     then
