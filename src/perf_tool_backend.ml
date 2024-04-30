@@ -207,7 +207,7 @@ module Recording = struct
     Sys.readdir record_dir
     |> Deferred.bind
          ~f:
-           (Deferred.Array.iter ~f:(fun file ->
+           (Deferred.Array.iter ~how:`Sequential ~f:(fun file ->
               if String.is_prefix file ~prefix:"perf.data"
               then Sys.remove (record_dir ^/ file)
               else Deferred.return ()))
@@ -460,6 +460,7 @@ let decode_events
   ~(recording_data : Recording.Data.t option)
   ~record_dir
   ~(collection_mode : Collection_mode.t)
+  ~elf
   ()
   =
   let%bind capabilities = Perf_capabilities.detect_exn () in
@@ -482,7 +483,7 @@ let decode_events
     >>| List.filter ~f:(String.is_prefix ~prefix:"perf.data")
   in
   let%map result =
-    Deferred.List.map files ~f:(fun perf_data_file ->
+    Deferred.List.map ~how:`Sequential files ~f:(fun perf_data_file ->
       let itrace_opts =
         match collection_mode with
         | Intel_processor_trace _ -> [ "--itrace=bep" ]
@@ -516,7 +517,7 @@ let decode_events
         (Reader.transfer
            (Process.stderr perf_script_proc)
            (Writer.pipe (force Writer.stderr)));
-      let events = Perf_decode.to_events ?perf_maps line_pipe in
+      let events = Perf_decode.to_events ?perf_maps ~elf line_pipe in
       let close_result =
         let%map exit_or_signal = Process.wait perf_script_proc in
         perf_exit_to_or_error exit_or_signal

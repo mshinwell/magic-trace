@@ -243,6 +243,7 @@ module Make_commands (Backend : Backend_intf.S) = struct
         ~recording_data
         ~record_dir
         ~collection_mode
+        ~elf
     in
     Tracing_tool_output.write_and_maybe_view
       output_config

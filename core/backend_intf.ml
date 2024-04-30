@@ -52,6 +52,7 @@ module type S = sig
              on information or configuration from [attach_and_record]. *)
     -> record_dir:string
     -> collection_mode:Collection_mode.t
+    -> elf:Elf.t option
     -> Decode_opts.t
     -> Decode_result.t Deferred.Or_error.t
 end

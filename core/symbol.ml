@@ -1,7 +1,10 @@
 open! Core
 
 type t =
-  | From_perf of string
+  | From_perf of
+      { symbol : string
+      ; demangled_name : string option
+      }
   | From_perf_map of Perf_map_location.t
   | Unknown
   | Untraced
@@ -18,6 +21,6 @@ let display_name = function
   | Untraced -> "[untraced]"
   | Returned -> "[returned]"
   | Syscall -> "[syscall]"
-  | From_perf name -> name
+  | From_perf { symbol; demangled_name } -> Option.value demangled_name ~default:symbol
   | From_perf_map { function_; _ } -> function_
 ;;

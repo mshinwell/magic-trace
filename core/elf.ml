@@ -116,6 +116,8 @@ let create filename =
   | _ -> None
 ;;
 
+let executable_file { filename; _ } = filename
+
 let is_func sym =
   match Owee_elf.Symbol_table.Symbol.type_attribute sym with
   | Func -> true

@@ -20,14 +20,30 @@ module Thread = struct
   [@@deriving sexp, compare, hash, bin_io]
 end
 
+module Inlined_frame = struct
+  type t =
+    { demangled_name : string
+    ; filename : string
+    ; line : int
+    ; column : int
+    }
+  [@@deriving sexp, fields, bin_io, compare]
+
+  let display_name { demangled_name; _ } = demangled_name ^ " [inlined]"
+  (*    Printf.sprintf "%s (%s:%d,%d) [inlined]"
+        demangled_name filename line column *)
+end
+
 module Location = struct
   type t =
     { instruction_pointer : Int64.Hex.t
     ; symbol : Symbol.t
     ; symbol_offset : Int.Hex.t
+    ; inlined_frames_outermost_first : Inlined_frame.t list
     }
   [@@deriving sexp, fields, bin_io]
 
+  (* XXX to be fixed later
   module Ignore_symbol = struct
     (* Ignoring symbol strings when serializing to save space. This reduces the size of events file
        by ~50% based on small tests. The symbol information is still available implicitly by looking at the top
@@ -53,11 +69,19 @@ module Location = struct
   end
 
   include Binable.Of_binable_with_uuid (Int64.Hex) (Ignore_symbol)
-  include Sexpable.Of_sexpable (Int64.Hex) (Ignore_symbol)
+     include Sexpable.Of_sexpable (Int64.Hex) (Ignore_symbol)
+  *)
 
   (* magic-trace has some things that aren't functions but look like they are in the trace
      (like "[untraced]" and "[syscall]") *)
-  let locationless symbol = { instruction_pointer = 0L; symbol; symbol_offset = 0 }
+  let locationless symbol =
+    { instruction_pointer = 0L
+    ; symbol
+    ; symbol_offset = 0
+    ; inlined_frames_outermost_first = []
+    }
+  ;;
+
   let unknown = locationless Unknown
   let untraced = locationless Untraced
   let returned = locationless Returned
