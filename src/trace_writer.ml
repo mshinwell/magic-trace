@@ -46,8 +46,12 @@ module Pending_event = struct
       | Inlined_call of
           { inlined_frame : Event.Inlined_frame.t
           ; from_untraced : bool
+          ; reason : string
           }
-      | Inlined_ret of Event.Inlined_frame.t
+      | Inlined_ret of
+          { inlined_frame : Event.Inlined_frame.t
+          ; reason : string
+          }
     [@@deriving sexp]
   end
 
@@ -71,11 +75,15 @@ module Pending_event = struct
     }
   ;;
 
-  let create_inlined_call frame ~from_untraced =
-    { symbol = Unknown; kind = Inlined_call { inlined_frame = frame; from_untraced } }
+  let create_inlined_call frame ~from_untraced reason =
+    { symbol = Unknown
+    ; kind = Inlined_call { inlined_frame = frame; from_untraced; reason }
+    }
   ;;
 
-  let create_inlined_ret frame = { symbol = Unknown; kind = Inlined_ret frame }
+  let create_inlined_ret frame reason =
+    { symbol = Unknown; kind = Inlined_ret { inlined_frame = frame; reason } }
+  ;;
 end
 
 let name_for_inlined_frame (frame : Event.Inlined_frame.t) =
@@ -167,6 +175,7 @@ type 'thread inner =
   ; trace : (module Trace with type thread = 'thread)
   ; annotate_inferred_start_times : bool
   ; mutable in_filtered_region : bool
+  ; inlining_stack : Event.Inlined_frame.t Stack.t
   }
 
 type t = T : 'thread inner -> t
@@ -335,6 +344,7 @@ let create_expert
       ; trace
       ; annotate_inferred_start_times
       ; in_filtered_region = true
+      ; inlining_stack = Stack.create ()
       }
   in
   write_hits t hits;
@@ -415,8 +425,11 @@ let write_pending_event'
       then display_name ^ " [inferred start time]"
       else display_name
     in
+    (*Stdlib.Printf.eprintf "Call: %s\n" display_name; *)
     write_duration_begin t ~thread:thread.thread ~name ~time ~args
-  | Ret -> write_duration_end t ~name:display_name ~time ~thread:thread.thread ~args:[]
+  | Ret ->
+    (*    Stdlib.Printf.eprintf "Ret: %s\n" display_name; *)
+    write_duration_end t ~name:display_name ~time ~thread:thread.thread ~args:[]
   | Ret_from_untraced { reset_time } ->
     write_duration_complete
       t
@@ -425,7 +438,8 @@ let write_pending_event'
       ~name:(Symbol.display_name Unknown)
       ~thread:thread.thread
       ~args:[]
-  | Inlined_call { inlined_frame = frame; from_untraced } ->
+  | Inlined_call { inlined_frame = frame; from_untraced; reason = _ } ->
+    Stack.push t.inlining_stack frame;
     let open Tracing.Trace.Arg in
     let { Event.Inlined_frame.demangled_name; filename; line; column } = frame in
     let args =
@@ -440,19 +454,43 @@ let write_pending_event'
     in
     let args = args @ inferred_start_time_arg in
     let display_name = name_for_inlined_frame frame in
+    (*    Stdlib.Printf.eprintf
+          "Inlined call (%s): %s\n"
+          reason
+          (Sexp.to_string (Event.Inlined_frame.sexp_of_t frame)); *)
     let name =
       if t.annotate_inferred_start_times && from_untraced
       then display_name ^ " [inferred start time]"
       else display_name
     in
     write_duration_begin t ~thread:thread.thread ~name ~time ~args
-  | Inlined_ret frame ->
-    write_duration_end
-      t
-      ~name:(name_for_inlined_frame frame)
-      ~time
-      ~thread:thread.thread
-      ~args:[]
+  | Inlined_ret { inlined_frame = frame; reason } ->
+    let on_stack = Stack.pop t.inlining_stack in
+    let err = Printf.sprintf "%s (%s)" (name_for_inlined_frame frame) reason in
+    (match on_stack with
+     | None ->
+       ()
+       (* XXX this is valid if this is an "untraced" return *)
+       (* failwithf "Couldn't do Inlined_ret %s, stack is empty" err () *)
+     | Some on_stack ->
+       if not ([%compare.equal: Event.Inlined_frame.t] frame on_stack)
+       then
+         failwithf
+           "Couldn't do Inlined_ret %s, top of inlining stack differs: %s (tried to \
+            return with: %s)"
+           err
+           (Sexp.to_string (Event.Inlined_frame.sexp_of_t on_stack))
+           (Sexp.to_string (Event.Inlined_frame.sexp_of_t frame))
+           ());
+    (*    Stdlib.Printf.eprintf "Inlined_ret (%s): %s\n" reason (name_for_inlined_frame frame); *)
+    if Option.is_some on_stack
+    then
+      write_duration_end
+        t
+        ~name:(name_for_inlined_frame frame)
+        ~time
+        ~thread:thread.thread
+        ~args:[]
 ;;
 
 (* It would be reasonable to also have returns consume time, but making them not
@@ -607,7 +645,7 @@ let call t thread_info ~time ~(location : Event.Location.t) =
   (* Add any inlined frames that exist at the new program counter in the callee,
      starting from the outermost (least deep) inlining. *)
   List.iter location.inlined_frames_outermost_first ~f:(fun frame ->
-    let ev = Pending_event.create_inlined_call frame ~from_untraced:false in
+    let ev = Pending_event.create_inlined_call frame ~from_untraced:false "call" in
     add_event t thread_info time ev);
   Callstack.push thread_info.callstack location
 ;;
@@ -619,7 +657,9 @@ let ret_without_checking_for_go_hacks t (thread_info : _ Thread_info.t) ~time =
        "causing those frames to return".  This is done for the one corresponding
        to the deepest inlining first. *)
     List.iter (List.rev inlined_frames_outermost_first) ~f:(fun frame ->
-      let ev = Pending_event.create_inlined_ret frame in
+      let ev =
+        Pending_event.create_inlined_ret frame "ret_without_checking_for_go_hacks"
+      in
       add_event t thread_info time ev);
     (* Now record the actual (non-inlined) return. *)
     add_event t thread_info time { symbol; kind = Ret }
@@ -740,6 +780,8 @@ let ret t (thread_info : _ Thread_info.t) ~time : unit =
   Go_hacks.ret_track_gogo t thread_info ~time ~returned_from
 ;;
 
+let debug2 = true
+
 let check_current_symbol
   t
   (thread_info : _ Thread_info.t)
@@ -751,7 +793,8 @@ let check_current_symbol
      with jumps between functions (e.g. tailcalls, PLT) or returns out of the highest
      known function, so we have to correct the top of the stack here. *)
   match Callstack.top thread_info.callstack with
-  | Some { symbol; inlined_frames_outermost_first = previous_inlined_frames; _ } ->
+  | Some ({ symbol; inlined_frames_outermost_first = previous_inlined_frames; _ } as loc)
+    ->
     (* XXX maybe this shouldn't compare the demangled name? *)
     let different_symbol = not ([%compare.equal: Symbol.t] symbol location.symbol) in
     if different_symbol
@@ -769,16 +812,20 @@ let check_current_symbol
       in
       if different_inlined_frames
       then (
-        (*
-        Stdlib.Printf.printf "prev frames = %s, new frames = %s\n%!"
-          (Sexp.to_string (List.sexp_of_t Event.Inlined_frame.sexp_of_t previous_inlined_frames))
-          (Sexp.to_string (List.sexp_of_t Event.Inlined_frame.sexp_of_t new_inlined_frames)); *)
+        if debug2
+        then
+          Stdlib.Printf.printf
+            "prev frames = %s, new frames = %s\n%!"
+            (Sexp.to_string
+               (List.sexp_of_t Event.Inlined_frame.sexp_of_t previous_inlined_frames))
+            (Sexp.to_string
+               (List.sexp_of_t Event.Inlined_frame.sexp_of_t new_inlined_frames));
         let rec chop_common_prefix prev_frames new_frames =
           match prev_frames, new_frames with
           | [], [] -> [], []
-          | [], _::_ -> [], new_frames
-          | _::_, [] -> prev_frames, []
-          | p::ps, n::ns ->
+          | [], _ :: _ -> [], new_frames
+          | _ :: _, [] -> prev_frames, []
+          | p :: ps, n :: ns ->
             if [%compare.equal: Event.Inlined_frame.t] p n
             then chop_common_prefix ps ns
             else prev_frames, new_frames
@@ -786,23 +833,40 @@ let check_current_symbol
         let prev_frames_to_pop, new_frames_to_push =
           chop_common_prefix previous_inlined_frames new_inlined_frames
         in
-        (*
-        Stdlib.Printf.printf "to pop: %s\n%!"
-          (Sexp.to_string (List.sexp_of_t Event.Inlined_frame.sexp_of_t prev_frames_to_pop));
-        Stdlib.Printf.printf "to push: %s\n%!"
-           (Sexp.to_string (List.sexp_of_t Event.Inlined_frame.sexp_of_t new_frames_to_push));
-           *)
+        if debug2
+        then (
+          Stdlib.Printf.printf
+            "to pop: %s\n%!"
+            (Sexp.to_string
+               (List.sexp_of_t Event.Inlined_frame.sexp_of_t prev_frames_to_pop));
+          Stdlib.Printf.printf
+            "to push: %s\n%!"
+            (Sexp.to_string
+               (List.sexp_of_t Event.Inlined_frame.sexp_of_t new_frames_to_push)));
         (* Same function in terms of program counter, but different inlining
            stacks; make the necessary adjustments. *)
         List.iter (List.rev prev_frames_to_pop) ~f:(fun frame ->
-          let ev = Pending_event.create_inlined_ret frame in
+          let ev = Pending_event.create_inlined_ret frame "check_current_symbol" in
           add_event t thread_info time ev);
         List.iter new_frames_to_push ~f:(fun frame ->
-          let ev = Pending_event.create_inlined_call frame ~from_untraced:false in
+          let ev =
+            Pending_event.create_inlined_call
+              frame
+              ~from_untraced:false
+              "check_current_symbol"
+          in
           add_event t thread_info time ev);
-        let loc = Callstack.pop thread_info.callstack |> Option.value_exn in
-        let new_loc = { loc with inlined_frames_outermost_first = new_inlined_frames } in
-        Callstack.push thread_info.callstack new_loc))
+        let (_ : Event.Location.t option) = Callstack.pop thread_info.callstack in
+        let loc = { loc with inlined_frames_outermost_first = new_inlined_frames } in
+        if debug2
+        then
+          Stdlib.Printf.printf
+            "new location = %s\n%!"
+            (Sexp.to_string (Event.Location.sexp_of_t loc));
+        (*        Stdlib.Printf.printf
+                  "The callstack is: %s\n%!"
+                  (Sexp.to_string (Callstack.sexp_of_t thread_info.callstack)); *)
+        Callstack.push thread_info.callstack loc))
   | None ->
     (* If we have no callstack left, then we just returned out of something we didn't
        see the call for. Since we're in snapshot mode, this happens with functions
@@ -815,7 +879,12 @@ let check_current_symbol
     write_pending_event t thread_info thread_info.callstack.create_time ev;
     let new_inlined_frames = location.inlined_frames_outermost_first in
     List.iter new_inlined_frames ~f:(fun frame ->
-      let ev = Pending_event.create_inlined_call frame ~from_untraced:true in
+      let ev =
+        Pending_event.create_inlined_call
+          frame
+          ~from_untraced:true
+          "check_current_symbol None case"
+      in
       write_pending_event t thread_info time ev);
     Callstack.push thread_info.callstack location
 ;;
@@ -879,11 +948,35 @@ end = struct
     ret t thread_info ~time
   ;;
 
-  let clear_trap_stack t thread_info ~time =
+  let clear_trap_stack
+    t
+    (thread_info : _ Thread_info.t)
+    ~time
+    ~inlined_frames_outermost_first
+    =
+    if debug2 then Stdlib.Printf.eprintf "CLEAR_TRAP_STACK\n%!";
+    let current_frame = Callstack.top thread_info.callstack in
+    if debug2
+    then
+      Stdlib.Printf.eprintf
+        "TOS had location %s\n%!"
+        (Sexp.to_string (Option.sexp_of_t Event.Location.sexp_of_t current_frame));
+    (*    if debug2
+          then
+          Stdlib.Printf.printf
+          "The callstack is: %s\n%!"
+          (Sexp.to_string (Callstack.sexp_of_t thread_info.callstack)); *)
     clear_callstack t thread_info ~time;
-    match Stack.pop thread_info.inactive_callstacks with
-    | Some callstack -> thread_info.callstack <- callstack
-    | None -> thread_info.callstack <- Callstack.create ~create_time:time
+    (match Stack.pop thread_info.inactive_callstacks with
+     | Some callstack -> thread_info.callstack <- callstack
+     | None -> thread_info.callstack <- Callstack.create ~create_time:time);
+    match Callstack.pop thread_info.callstack with
+    | None -> ()
+    | Some loc ->
+      (match inlined_frames_outermost_first with
+       | None -> ()
+       | Some inlined_frames_outermost_first ->
+         Callstack.push thread_info.callstack { loc with inlined_frames_outermost_first })
   ;;
 
   let check_current_symbol_track_entertraps
@@ -892,6 +985,7 @@ end = struct
     ~time
     (dst : Event.Location.t)
     =
+    if debug2 then Stdlib.Printf.eprintf "CHECK_CURRENT_SYMBOL_TRACK_ENTERTRAPS\n%!";
     match thread_info.ocaml_exception_state with
     | With_exception_info { ocaml_exception_info; _ }
       when Ocaml_exception_info.is_entertrap
@@ -905,7 +999,8 @@ end = struct
       let s = List.take s (List.length s - 1) in
       Stack.clear thread_info.callstack.stack;
       List.iter (List.rev s) ~f:(fun x -> Stack.push thread_info.callstack.stack x);
-      clear_trap_stack t thread_info ~time
+      clear_trap_stack t thread_info ~time ~inlined_frames_outermost_first:None
+      (* XXX set inlined frames arg *)
       (* XXX should this call [check_current_symbol]? *)
     | _ -> check_current_symbol t thread_info ~time dst
   ;;
@@ -969,8 +1064,19 @@ end = struct
                     - Poptrap 1
 
                     where "Pushtrap 2" gets dropped. *)
-                 ignore (Callstack.pop thread_info.callstack : _);
-                 clear_trap_stack t thread_info ~time)));
+                 let loc = Callstack.pop thread_info.callstack in
+                 if debug2
+                 then
+                   Stdlib.Printf.eprintf
+                     "TOS in track_executed_pushtraps_... had location %s\n%!"
+                     (Sexp.to_string (Option.sexp_of_t Event.Location.sexp_of_t loc));
+                 clear_trap_stack
+                   t
+                   thread_info
+                   ~time
+                   ~inlined_frames_outermost_first:
+                     (Option.map loc ~f:(fun (loc : Event.Location.t) ->
+                        loc.inlined_frames_outermost_first)))));
       last_known_instruction_pointer := Some dst.instruction_pointer
   ;;
 end
@@ -1010,7 +1116,9 @@ let rewrite_callstack t ~(callstack : Callstack.t) ~thread_info ~time =
       (Pending_event.create_call location ~from_untraced:true);
     let new_inlined_frames = location.inlined_frames_outermost_first in
     List.iter new_inlined_frames ~f:(fun frame ->
-      let ev = Pending_event.create_inlined_call frame ~from_untraced:true in
+      let ev =
+        Pending_event.create_inlined_call frame ~from_untraced:true "rewrite_callstack"
+      in
       write_pending_event' t thread_info time ev)
     (* Not necessarily true, but setting [~from_untraced:true] causes the timestamp to be annotated as inferred *));
   callstack.create_time

@@ -369,6 +369,13 @@ let parse_perf_branches_event ?perf_maps ~elf (thread : Event.Thread.t) time lin
         dst_symbol_and_offset
         ~addr:dst_instruction_pointer
     in
+    (*
+       Stdlib.Printf.printf
+       "src frames (%s) = %s, dst frames (%s) = %s\n%!"
+       (Symbol.display_name src_symbol)
+       (Sexp.to_string (List.sexp_of_t Event.Inlined_frame.sexp_of_t src_inlined_frames))
+       (Symbol.display_name dst_symbol)
+       (Sexp.to_string (List.sexp_of_t Event.Inlined_frame.sexp_of_t dst_inlined_frames)); *)
     let starts_trace, kind =
       match String.chop_prefix kind ~prefix:"tr strt" with
       | None -> false, kind
