@@ -37,19 +37,34 @@ end = struct
 
   let addr () = Random.State.int64_incl !rng 0L 0x7fffffffffffL
   let offset () = Random.State.int_incl !rng 0 0x1000
-  let unknown = Symbol.From_perf "unknown"
-  let loc symbol = { Event.Location.instruction_pointer = 0L; symbol; symbol_offset = 0 }
+  let unknown = Symbol.From_perf { symbol = "unknown"; demangled_name = None }
+
+  let loc symbol =
+    { Event.Location.instruction_pointer = 0L
+    ; symbol
+    ; symbol_offset = 0
+    ; inlined_frames_outermost_first = []
+    }
+  ;;
 
   let symbol () =
     Symbol.From_perf
-      (List.init (Random.State.int_incl !rng 1 10) ~f:(fun _ -> Random.State.ascii !rng)
-       |> String.of_char_list)
+      { symbol =
+          List.init (Random.State.int_incl !rng 1 10) ~f:(fun _ ->
+            Random.State.ascii !rng)
+          |> String.of_char_list
+      ; demangled_name = None
+      }
   ;;
 
   let random_location ?symbol () : Event.Location.t =
     { instruction_pointer = addr ()
-    ; symbol = Option.value symbol ~default:(Symbol.From_perf "")
+    ; symbol =
+        Option.value
+          symbol
+          ~default:(Symbol.From_perf { symbol = ""; demangled_name = None })
     ; symbol_offset = offset ()
+    ; inlined_frames_outermost_first = []
     }
   ;;
 
@@ -77,7 +92,7 @@ end = struct
 
   let add kind ns symbol =
     let time = Time_ns.Span.of_int_ns ns in
-    let symbol = Symbol.From_perf symbol in
+    let symbol = Symbol.From_perf { symbol; demangled_name = None } in
     let dst = loc symbol in
     let src =
       match kind with

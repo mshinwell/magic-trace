@@ -580,7 +580,16 @@ let%test_module _ =
         {|
         ((Ok
           ((thread ((pid (25375)) (tid (25375)))) (time 52d4h33m11.343298468s)
-           (data (Trace (kind Call) (src 0x7f6fce0b71f4) (dst 0x7ffd193838e0)))))) |}]
+           (data
+            (Trace (kind Call)
+             (src
+              ((instruction_pointer 0x7f6fce0b71f4)
+               (symbol (From_perf (symbol __clock_gettime) (demangled_name ())))
+               (symbol_offset 0x24) (inlined_frames_outermost_first ())))
+             (dst
+              ((instruction_pointer 0x7ffd193838e0)
+               (symbol (From_perf (symbol __vdso_clock_gettime) (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))))))) |}]
     ;;
 
     let%expect_test "C symbol trace start" =
@@ -590,7 +599,17 @@ let%test_module _ =
         {|
         ((Ok
           ((thread ((pid (25375)) (tid (25375)))) (time 52d4h33m11.343298468s)
-           (data (Trace (trace_state_change Start) (src 0x0) (dst 0x7f6fce0b71d0)))))) |}]
+           (data
+            (Trace (trace_state_change Start)
+             (src
+              ((instruction_pointer 0x0)
+               (symbol
+                (From_perf (symbol "[unknown @ 0x0 (foo.so)]") (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))
+             (dst
+              ((instruction_pointer 0x7f6fce0b71d0)
+               (symbol (From_perf (symbol __clock_gettime) (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))))))) |}]
     ;;
 
     let%expect_test "C++ symbol" =
@@ -600,7 +619,20 @@ let%test_module _ =
         {|
         ((Ok
           ((thread ((pid (7166)) (tid (7166)))) (time 52d5h30m23.871133092s)
-           (data (Trace (kind Call) (src 0x9bc6db) (dst 0x9f68b0)))))) |}]
+           (data
+            (Trace (kind Call)
+             (src
+              ((instruction_pointer 0x9bc6db)
+               (symbol
+                (From_perf
+                 (symbol "a::B<a::C, a::D<a::E>, a::F, a::F, G::H, a::I>::run")
+                 (demangled_name ())))
+               (symbol_offset 0x1eb) (inlined_frames_outermost_first ())))
+             (dst
+              ((instruction_pointer 0x9f68b0)
+               (symbol
+                (From_perf (symbol "J::K<int, std::string>") (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))))))) |}]
     ;;
 
     let%expect_test "OCaml symbol" =
@@ -610,7 +642,17 @@ let%test_module _ =
         {|
         ((Ok
           ((thread ((pid (2017001)) (tid (2017001)))) (time 8d19h30m39.05333667s)
-           (data (Trace (kind Call) (src 0x56234f77576b) (dst 0x56234f4bc7a0)))))) |}]
+           (data
+            (Trace (kind Call)
+             (src
+              ((instruction_pointer 0x56234f77576b)
+               (symbol
+                (From_perf (symbol Base.Comparable.=_2352) (demangled_name ())))
+               (symbol_offset 0xb) (inlined_frames_outermost_first ())))
+             (dst
+              ((instruction_pointer 0x56234f4bc7a0)
+               (symbol (From_perf (symbol caml_apply2) (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))))))) |}]
     ;;
 
     (* CR-someday wduff: Leaving this concrete example here for when we support this. See my
@@ -632,7 +674,16 @@ let%test_module _ =
         {|
         ((Ok
           ((thread ((pid (2017001)) (tid (2017001)))) (time 8d19h30m39.05333667s)
-           (data (Trace (kind Call) (src 0x56234f77576b) (dst 0x56234f4bc7a0)))))) |}]
+           (data
+            (Trace (kind Call)
+             (src
+              ((instruction_pointer 0x56234f77576b)
+               (symbol (From_perf (symbol "x => ") (demangled_name ())))
+               (symbol_offset 0xb) (inlined_frames_outermost_first ())))
+             (dst
+              ((instruction_pointer 0x56234f4bc7a0)
+               (symbol (From_perf (symbol caml_apply2) (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))))))) |}]
     ;;
 
     let%expect_test "manufactured example 2" =
@@ -642,7 +693,16 @@ let%test_module _ =
         {|
         ((Ok
           ((thread ((pid (2017001)) (tid (2017001)))) (time 8d19h30m39.05333667s)
-           (data (Trace (kind Call) (src 0x56234f77576b) (dst 0x56234f4bc7a0)))))) |}]
+           (data
+            (Trace (kind Call)
+             (src
+              ((instruction_pointer 0x56234f77576b)
+               (symbol (From_perf (symbol "x => ") (demangled_name ())))
+               (symbol_offset 0xb) (inlined_frames_outermost_first ())))
+             (dst
+              ((instruction_pointer 0x56234f4bc7a0)
+               (symbol (From_perf (symbol "=> ") (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))))))) |}]
     ;;
 
     let%expect_test "manufactured example 3" =
@@ -652,7 +712,16 @@ let%test_module _ =
         {|
         ((Ok
           ((thread ((pid (2017001)) (tid (2017001)))) (time 8d19h30m39.05333667s)
-           (data (Trace (kind Call) (src 0x56234f77576b) (dst 0x56234f4bc7a0)))))) |}]
+           (data
+            (Trace (kind Call)
+             (src
+              ((instruction_pointer 0x56234f77576b)
+               (symbol (From_perf (symbol "+ ") (demangled_name ())))
+               (symbol_offset 0xb) (inlined_frames_outermost_first ())))
+             (dst
+              ((instruction_pointer 0x56234f4bc7a0)
+               (symbol (From_perf (symbol caml_apply2) (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))))))) |}]
     ;;
 
     let%expect_test "unknown symbol in DSO" =
@@ -662,7 +731,18 @@ let%test_module _ =
         {|
         ((Ok
           ((thread ((pid (2017001)) (tid (2017001)))) (time 8d19h30m39.05333667s)
-           (data (Trace (kind Call) (src 0x56234f77576b) (dst 0x56234f4bc7a0)))))) |}]
+           (data
+            (Trace (kind Call)
+             (src
+              ((instruction_pointer 0x56234f77576b)
+               (symbol
+                (From_perf (symbol "[unknown @ 0x56234f77576b (foo.so)]")
+                 (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))
+             (dst
+              ((instruction_pointer 0x56234f4bc7a0)
+               (symbol (From_perf (symbol caml_apply2) (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))))))) |}]
     ;;
 
     let%expect_test "DSO with spaces in it" =
@@ -672,7 +752,19 @@ let%test_module _ =
         {|
         ((Ok
           ((thread ((pid (2017001)) (tid (2017001)))) (time 8d19h30m39.05333667s)
-           (data (Trace (kind Call) (src 0x56234f77576b) (dst 0x56234f4bc7a0)))))) |}]
+           (data
+            (Trace (kind Call)
+             (src
+              ((instruction_pointer 0x56234f77576b)
+               (symbol
+                (From_perf
+                 (symbol "[unknown @ 0x56234f77576b (this is a spaced dso.so)]")
+                 (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))
+             (dst
+              ((instruction_pointer 0x56234f4bc7a0)
+               (symbol (From_perf (symbol caml_apply2) (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))))))) |}]
     ;;
 
     let%expect_test "decode error with a timestamp" =
@@ -795,10 +887,55 @@ let%test_module _ =
            (data
             (Stacktrace_sample
              (callstack
-              (0x4008de 0x7f9bd46ae285 0x7f9bd46ae964 0x7f9bd445225e 0x7f9bd44521a2
-               0x7f9bd46ae1e8 0x7f9bd48c9d0c 0x7f9bd44521a2 0x7f9bd48c9ac2
-               0x7f9bd44521a2 0x7f9bd48ca184 0x7f9bd48bf6b0 0x7f9bd48bd18f
-               0x7f9bd48c1d80 -0x68dfef00))))))) |}]
+              (((instruction_pointer 0x4008de)
+                (symbol (From_perf (symbol main) (demangled_name ())))
+                (symbol_offset 0x87) (inlined_frames_outermost_first ()))
+               ((instruction_pointer 0x7f9bd46ae285)
+                (symbol (From_perf (symbol dlopen@@GLIBC_2.2.5) (demangled_name ())))
+                (symbol_offset 0x45) (inlined_frames_outermost_first ()))
+               ((instruction_pointer 0x7f9bd46ae964)
+                (symbol (From_perf (symbol _dlerror_run) (demangled_name ())))
+                (symbol_offset 0x64) (inlined_frames_outermost_first ()))
+               ((instruction_pointer 0x7f9bd445225e)
+                (symbol (From_perf (symbol _dl_catch_error) (demangled_name ())))
+                (symbol_offset 0x2e) (inlined_frames_outermost_first ()))
+               ((instruction_pointer 0x7f9bd44521a2)
+                (symbol (From_perf (symbol _dl_catch_exception) (demangled_name ())))
+                (symbol_offset 0x82) (inlined_frames_outermost_first ()))
+               ((instruction_pointer 0x7f9bd46ae1e8)
+                (symbol (From_perf (symbol dlopen_doit) (demangled_name ())))
+                (symbol_offset 0x58) (inlined_frames_outermost_first ()))
+               ((instruction_pointer 0x7f9bd48c9d0c)
+                (symbol (From_perf (symbol _dl_open) (demangled_name ())))
+                (symbol_offset 0xac) (inlined_frames_outermost_first ()))
+               ((instruction_pointer 0x7f9bd44521a2)
+                (symbol (From_perf (symbol _dl_catch_exception) (demangled_name ())))
+                (symbol_offset 0x82) (inlined_frames_outermost_first ()))
+               ((instruction_pointer 0x7f9bd48c9ac2)
+                (symbol (From_perf (symbol dl_open_worker) (demangled_name ())))
+                (symbol_offset 0x32) (inlined_frames_outermost_first ()))
+               ((instruction_pointer 0x7f9bd44521a2)
+                (symbol (From_perf (symbol _dl_catch_exception) (demangled_name ())))
+                (symbol_offset 0x82) (inlined_frames_outermost_first ()))
+               ((instruction_pointer 0x7f9bd48ca184)
+                (symbol
+                 (From_perf (symbol dl_open_worker_begin) (demangled_name ())))
+                (symbol_offset 0xa4) (inlined_frames_outermost_first ()))
+               ((instruction_pointer 0x7f9bd48bf6b0)
+                (symbol (From_perf (symbol _dl_map_object) (demangled_name ())))
+                (symbol_offset 0x1e0) (inlined_frames_outermost_first ()))
+               ((instruction_pointer 0x7f9bd48bd18f)
+                (symbol
+                 (From_perf (symbol _dl_map_object_from_fd) (demangled_name ())))
+                (symbol_offset 0xb8f) (inlined_frames_outermost_first ()))
+               ((instruction_pointer 0x7f9bd48c1d80)
+                (symbol (From_perf (symbol _dl_setup_hash) (demangled_name ())))
+                (symbol_offset 0x0) (inlined_frames_outermost_first ()))
+               ((instruction_pointer -0x68dfef00)
+                (symbol
+                 (From_perf (symbol "[unknown @ -0x68dfef00 ([unknown])]")
+                  (demangled_name ())))
+                (symbol_offset 0x0) (inlined_frames_outermost_first ()))))))))) |}]
     ;;
 
     let%expect_test "cache-misses event with ipt" =
@@ -811,7 +948,12 @@ let%test_module _ =
         ((Ok
           ((thread ((pid (3871580)) (tid (3871580)))) (time 4d23h38m40.265503976s)
            (data
-            (Event_sample (location 0x7fca9945c595) (count 50) (name Cache_misses)))))) |}]
+            (Event_sample
+             (location
+              ((instruction_pointer 0x7fca9945c595)
+               (symbol (From_perf (symbol __sleep) (demangled_name ())))
+               (symbol_offset 0x55) (inlined_frames_outermost_first ())))
+             (count 50) (name Cache_misses)))))) |}]
     ;;
 
     let%expect_test "cache-misses event with sampling" =
@@ -830,7 +972,12 @@ let%test_module _ =
         ((Ok
           ((thread ((pid (3871580)) (tid (3871580)))) (time 4d23h44m3.387175119s)
            (data
-            (Event_sample (location 0x7fca999481a0) (count 50) (name Cache_misses)))))) |}]
+            (Event_sample
+             (location
+              ((instruction_pointer 0x7fca999481a0)
+               (symbol (From_perf (symbol _dl_unmap) (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))
+             (count 50) (name Cache_misses)))))) |}]
     ;;
 
     let%expect_test "branch-misses event with ipt" =
@@ -843,7 +990,12 @@ let%test_module _ =
         ((Ok
           ((thread ((pid (3871580)) (tid (3871580)))) (time 4d23h47m8.52679923s)
            (data
-            (Event_sample (location 0x7fca99943c60) (count 50) (name Branch_misses)))))) |}]
+            (Event_sample
+             (location
+              ((instruction_pointer 0x7fca99943c60)
+               (symbol (From_perf (symbol _dl_open) (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))
+             (count 50) (name Branch_misses)))))) |}]
     ;;
 
     let%expect_test "perf reports a garbage symbol offset" =
@@ -853,7 +1005,18 @@ let%test_module _ =
         {|
         ((Ok
           ((thread ((pid (25375)) (tid (25375)))) (time 52d4h33m11.343298468s)
-           (data (Trace (kind Call) (src 0x7f6fce0b71f4) (dst 0x7ffd193838e0)))))) |}]
+           (data
+            (Trace (kind Call)
+             (src
+              ((instruction_pointer 0x7f6fce0b71f4)
+               (symbol
+                (From_perf (symbol "[unknown @ 0x7f6fce0b71f4 (foo.so)]")
+                 (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))
+             (dst
+              ((instruction_pointer 0x7ffd193838e0)
+               (symbol (From_perf (symbol memcpy@plt) (demangled_name ())))
+               (symbol_offset -0xdd1000) (inlined_frames_outermost_first ())))))))) |}]
     ;;
 
     let%expect_test "tr end  async" =
@@ -864,8 +1027,19 @@ let%test_module _ =
         ((Ok
           ((thread ((pid (25375)) (tid (25375)))) (time 52d4h33m11.343298468s)
            (data
-            (Trace (trace_state_change End) (kind Async) (src 0x7f6fce0b71f4)
-             (dst 0x0)))))) |}]
+            (Trace (trace_state_change End) (kind Async)
+             (src
+              ((instruction_pointer 0x7f6fce0b71f4)
+               (symbol
+                (From_perf (symbol "[unknown @ 0x7f6fce0b71f4 (foo.so)]")
+                 (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))
+             (dst
+              ((instruction_pointer 0x0)
+               (symbol
+                (From_perf (symbol "[unknown @ 0x0 ([unknown])]")
+                 (demangled_name ())))
+               (symbol_offset 0x0) (inlined_frames_outermost_first ())))))))) |}]
     ;;
   end)
 ;;

@@ -6,6 +6,7 @@ open! Import
 
 val to_events
   :  ?perf_maps:Perf_map.Table.t
+  -> elf:Elf.t option
   -> string Pipe.Reader.t
   -> Event.t Pipe.Reader.t
 
