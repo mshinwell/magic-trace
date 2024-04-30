@@ -752,6 +752,7 @@ let check_current_symbol
      known function, so we have to correct the top of the stack here. *)
   match Callstack.top thread_info.callstack with
   | Some { symbol; inlined_frames_outermost_first = previous_inlined_frames; _ } ->
+    (* XXX maybe this shouldn't compare the demangled name? *)
     let different_symbol = not ([%compare.equal: Symbol.t] symbol location.symbol) in
     if different_symbol
     then (
@@ -768,14 +769,35 @@ let check_current_symbol
       in
       if different_inlined_frames
       then (
+        (*
+        Stdlib.Printf.printf "prev frames = %s, new frames = %s\n%!"
+          (Sexp.to_string (List.sexp_of_t Event.Inlined_frame.sexp_of_t previous_inlined_frames))
+          (Sexp.to_string (List.sexp_of_t Event.Inlined_frame.sexp_of_t new_inlined_frames)); *)
+        let rec chop_common_prefix prev_frames new_frames =
+          match prev_frames, new_frames with
+          | [], [] -> [], []
+          | [], _::_ -> [], new_frames
+          | _::_, [] -> prev_frames, []
+          | p::ps, n::ns ->
+            if [%compare.equal: Event.Inlined_frame.t] p n
+            then chop_common_prefix ps ns
+            else prev_frames, new_frames
+        in
+        let prev_frames_to_pop, new_frames_to_push =
+          chop_common_prefix previous_inlined_frames new_inlined_frames
+        in
+        (*
+        Stdlib.Printf.printf "to pop: %s\n%!"
+          (Sexp.to_string (List.sexp_of_t Event.Inlined_frame.sexp_of_t prev_frames_to_pop));
+        Stdlib.Printf.printf "to push: %s\n%!"
+           (Sexp.to_string (List.sexp_of_t Event.Inlined_frame.sexp_of_t new_frames_to_push));
+           *)
         (* Same function in terms of program counter, but different inlining
            stacks; make the necessary adjustments. *)
-        (* XXX this shouldn't close and reopen events for the common prefix of the
-           inlining stacks *)
-        List.iter (List.rev previous_inlined_frames) ~f:(fun frame ->
+        List.iter (List.rev prev_frames_to_pop) ~f:(fun frame ->
           let ev = Pending_event.create_inlined_ret frame in
           add_event t thread_info time ev);
-        List.iter new_inlined_frames ~f:(fun frame ->
+        List.iter new_frames_to_push ~f:(fun frame ->
           let ev = Pending_event.create_inlined_call frame ~from_untraced:false in
           add_event t thread_info time ev);
         let loc = Callstack.pop thread_info.callstack |> Option.value_exn in
@@ -1036,6 +1058,7 @@ let write_event_and_callstack
       events_writer.callstack_compression_state
       (Callstack.(callstack.stack)
        |> Stack.to_list
+       (* XXX needs to take into account inline frames? *)
        |> List.map ~f:(fun Event.Location.{ symbol; _ } -> symbol))
   in
   let event_and_callstack =
