@@ -4,6 +4,7 @@ include module type of Elf_intf
 type t
 
 val create : Filename.t -> t option
+val executable_file : t -> Filename.t
 
 (** Returns name, address and filter string for using a symbol as a snapshot point.
 

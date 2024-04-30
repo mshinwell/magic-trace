@@ -21,11 +21,24 @@ module Thread : sig
   [@@deriving sexp, compare, hash]
 end
 
+module Inlined_frame : sig
+  type t =
+    { demangled_name : string
+    ; filename : string
+    ; line : int
+    ; column : int
+    }
+  [@@deriving sexp, fields, bin_io, compare]
+
+  val display_name : t -> string
+end
+
 module Location : sig
   type t =
     { instruction_pointer : int64
     ; symbol : Symbol.t
     ; symbol_offset : int
+    ; inlined_frames_outermost_first : Inlined_frame.t list
     }
   [@@deriving sexp, fields, bin_io]
 
