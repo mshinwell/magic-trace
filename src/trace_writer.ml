@@ -43,7 +43,10 @@ module Pending_event = struct
           }
       | Ret
       | Ret_from_untraced of { reset_time : Mapped_time.t }
-      | Inlined_call of Event.Inlined_frame.t
+      | Inlined_call of
+          { inlined_frame : Event.Inlined_frame.t
+          ; from_untraced : bool
+          }
       | Inlined_ret of Event.Inlined_frame.t
     [@@deriving sexp]
   end
@@ -68,7 +71,10 @@ module Pending_event = struct
     }
   ;;
 
-  let create_inlined_call frame = { symbol = Unknown; kind = Inlined_call frame }
+  let create_inlined_call frame ~from_untraced =
+    { symbol = Unknown; kind = Inlined_call { inlined_frame = frame; from_untraced } }
+  ;;
+
   let create_inlined_ret frame = { symbol = Unknown; kind = Inlined_ret frame }
 end
 
@@ -419,7 +425,7 @@ let write_pending_event'
       ~name:(Symbol.display_name Unknown)
       ~thread:thread.thread
       ~args:[]
-  | Inlined_call frame ->
+  | Inlined_call { inlined_frame = frame; from_untraced } ->
     let open Tracing.Trace.Arg in
     let { Event.Inlined_frame.demangled_name; filename; line; column } = frame in
     let args =
@@ -429,12 +435,17 @@ let write_pending_event'
       ; "file", Interned filename
       ]
     in
-    write_duration_begin
-      t
-      ~thread:thread.thread
-      ~name:(name_for_inlined_frame frame)
-      ~time
-      ~args
+    let inferred_start_time_arg =
+      if from_untraced then [ "inferred_start_time", Interned "true" ] else []
+    in
+    let args = args @ inferred_start_time_arg in
+    let display_name = name_for_inlined_frame frame in
+    let name =
+      if t.annotate_inferred_start_times && from_untraced
+      then display_name ^ " [inferred start time]"
+      else display_name
+    in
+    write_duration_begin t ~thread:thread.thread ~name ~time ~args
   | Inlined_ret frame ->
     write_duration_end
       t
@@ -594,7 +605,7 @@ let call t thread_info ~time ~(location : Event.Location.t) =
   (* Add any inlined frames that exist at the new program counter in the callee,
      starting from the outermost (least deep) inlining. *)
   List.iter location.inlined_frames_outermost_first ~f:(fun frame ->
-    let ev = Pending_event.create_inlined_call frame in
+    let ev = Pending_event.create_inlined_call frame ~from_untraced:false in
     add_event t thread_info time ev);
   Callstack.push thread_info.callstack location
 ;;
@@ -763,7 +774,7 @@ let check_current_symbol
           let ev = Pending_event.create_inlined_ret frame in
           add_event t thread_info time ev);
         List.iter new_inlined_frames ~f:(fun frame ->
-          let ev = Pending_event.create_inlined_call frame in
+          let ev = Pending_event.create_inlined_call frame ~from_untraced:false in
           add_event t thread_info time ev);
         let loc = Callstack.pop thread_info.callstack |> Option.value_exn in
         let new_loc = { loc with inlined_frames_outermost_first = new_inlined_frames } in
@@ -780,7 +791,7 @@ let check_current_symbol
     write_pending_event t thread_info thread_info.callstack.create_time ev;
     let new_inlined_frames = location.inlined_frames_outermost_first in
     List.iter new_inlined_frames ~f:(fun frame ->
-      let ev = Pending_event.create_inlined_call frame in
+      let ev = Pending_event.create_inlined_call frame ~from_untraced:true in
       write_pending_event t thread_info time ev);
     Callstack.push thread_info.callstack location
 ;;
@@ -974,7 +985,7 @@ let rewrite_callstack t ~(callstack : Callstack.t) ~thread_info ~time =
       (Pending_event.create_call location ~from_untraced:true);
     let new_inlined_frames = location.inlined_frames_outermost_first in
     List.iter new_inlined_frames ~f:(fun frame ->
-      let ev = Pending_event.create_inlined_call frame in
+      let ev = Pending_event.create_inlined_call frame ~from_untraced:true in
       write_pending_event' t thread_info time ev)
     (* Not necessarily true, but setting [~from_untraced:true] causes the timestamp to be annotated as inferred *));
   callstack.create_time
